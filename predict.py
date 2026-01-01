@@ -149,7 +149,7 @@ def predict_openai(question: str) -> dict:
             {"role": "user", "content": question}
         ],
         max_output_tokens=64000,
-        reasoning={"effort": "xhigh"},
+        reasoning={"effort": "high"},
         tools=[{"type": "web_search_preview"}],
     )
     elapsed = time.time() - start_time
@@ -167,7 +167,7 @@ def predict_openai(question: str) -> dict:
         "probability": probability,
         "justification": justification,
         "model_id": "gpt-5.2-pro-2025-12-11",
-        "model_settings": "max_output_tokens=64000, reasoning_effort=xhigh, web_search=true",
+        "model_settings": "max_output_tokens=64000, reasoning_effort=high, web_search=true",
         "input_tokens": response.usage.input_tokens if response.usage else 0,
         "output_tokens": response.usage.output_tokens if response.usage else 0,
         "thinking_tokens_approx": reasoning_tokens,
