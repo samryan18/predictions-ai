@@ -86,7 +86,14 @@ def predict_claude(question: str) -> dict:
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     start_time = time.time()
-    response = client.messages.create(
+
+    # Use streaming for long requests (required for >10 min operations)
+    thinking = ""
+    answer = ""
+    input_tokens = 0
+    output_tokens = 0
+
+    with client.messages.stream(
         model="claude-opus-4-5-20251101",
         max_tokens=64000,
         thinking={
@@ -96,16 +103,16 @@ def predict_claude(question: str) -> dict:
         tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 20}],
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": question}]
-    )
+    ) as stream:
+        response = stream.get_final_message()
+
     elapsed = time.time() - start_time
 
-    thinking = ""
-    answer = ""
     thinking_tokens = 0
     for block in response.content:
         if block.type == "thinking":
             thinking = block.thinking
-            thinking_tokens = len(block.thinking.split())  # Approximate
+            thinking_tokens = len(block.thinking.split())
         elif block.type == "text":
             answer = block.text
 
