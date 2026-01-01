@@ -4,10 +4,10 @@ Collects probability predictions from AI models for a forecasting contest. Uses 
 
 ## Models
 
-| Model | Thinking | Web Search |
-|-------|----------|------------|
-| Claude Opus 4.5 | 10k token budget | Up to 10 searches |
-| GPT-5.2-pro | reasoning_effort=high | Enabled |
+| Model | Model ID | Thinking | Web Search |
+|-------|----------|----------|------------|
+| Claude Opus 4.5 | `claude-opus-4-5-20251101` | 32k token budget | Up to 20 searches |
+| GPT-5.2 Pro | `gpt-5.2-pro-2025-12-11` | reasoning_effort=high | Enabled |
 
 ## Setup
 
