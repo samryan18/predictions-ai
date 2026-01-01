@@ -36,11 +36,16 @@ You will be scored with binary cross-entropy loss (log loss). Confidently correc
 - "The group" in Personal category questions refers to everyone who submits a prediction slip
 
 ## Response Format
-Provide your probability, then a brief justification (2-4 sentences) showing your reasoning. Use exactly the example format below.
+You MUST respond with EXACTLY this format - no other text before the answer:
 
-# Question
-Will the US unemployment rate exceed 5% at any point in 2026?
+# Answer
+[probability as a decimal, e.g. 0.28]
 
+Justification: [2-4 sentences explaining your reasoning]
+
+IMPORTANT: Start your response with "# Answer" immediately. Do not include any preamble or discussion before giving your answer.
+
+Example:
 
 # Answer
 0.28
@@ -50,22 +55,28 @@ Justification: The unemployment rate has stayed below 5% since late 2021, and cu
 
 def parse_prediction(answer: str) -> tuple[str, str]:
     """Extract probability and justification from answer text."""
-    lines = answer.strip().split("\n")
     probability = ""
     justification = ""
 
-    for i, line in enumerate(lines):
-        # Look for a line that's just a number (the probability)
-        match = re.match(r"^(0\.\d+)$", line.strip())
-        if match:
-            probability = match.group(1)
-            # Everything after is justification
-            rest = "\n".join(lines[i+1:]).strip()
-            if rest.startswith("Justification:"):
-                justification = rest[14:].strip()
-            else:
-                justification = rest
-            break
+    # Try multiple patterns to find the probability
+    # Pattern 1: Line that's just a number
+    # Pattern 2: After "# Answer" header
+    # Pattern 3: Any 0.XX number in the text
+
+    # First try: look for # Answer section
+    answer_match = re.search(r"#\s*Answer\s*\n+(0\.\d+)", answer)
+    if answer_match:
+        probability = answer_match.group(1)
+    else:
+        # Fallback: find first 0.XXXX pattern (probability-like number)
+        prob_match = re.search(r"\b(0\.\d{2,6})\b", answer)
+        if prob_match:
+            probability = prob_match.group(1)
+
+    # Extract justification
+    just_match = re.search(r"Justification:\s*(.+)", answer, re.DOTALL)
+    if just_match:
+        justification = just_match.group(1).strip()
 
     return probability, justification
 
@@ -76,13 +87,13 @@ def predict_claude(question: str) -> dict:
 
     start_time = time.time()
     response = client.messages.create(
-        model="claude-opus-4-5-20250514",
-        max_tokens=16000,
+        model="claude-opus-4-5-20251101",
+        max_tokens=64000,
         thinking={
             "type": "enabled",
-            "budget_tokens": 10000
+            "budget_tokens": 32000
         },
-        tools=[{"type": "web_search", "name": "web_search", "max_uses": 10}],
+        tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 20}],
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": question}]
     )
@@ -105,8 +116,8 @@ def predict_claude(question: str) -> dict:
         "answer": answer,
         "probability": probability,
         "justification": justification,
-        "model_id": "claude-opus-4-5-20250514",
-        "model_settings": "thinking_budget=10000, web_search_max_uses=10",
+        "model_id": "claude-opus-4-5-20251101",
+        "model_settings": "thinking_budget=32000, web_search_max_uses=20",
         "input_tokens": response.usage.input_tokens,
         "output_tokens": response.usage.output_tokens,
         "thinking_tokens_approx": thinking_tokens,
@@ -115,37 +126,37 @@ def predict_claude(question: str) -> dict:
 
 
 def predict_openai(question: str) -> dict:
-    """Get prediction from GPT-5.2-pro with reasoning and web search."""
+    """Get prediction from GPT-5.2 pro with reasoning and web search."""
     client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
     start_time = time.time()
-    response = client.chat.completions.create(
+    response = client.responses.create(
         model="gpt-5.2-pro-2025-12-11",
-        max_completion_tokens=16000,
-        reasoning_effort="high",
-        messages=[
+        input=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": question}
         ],
-        tools=[{"type": "function", "function": {"name": "web_search", "description": "Search the web", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}}],
+        reasoning={"effort": "high"},
+        tools=[{"type": "web_search_preview"}],
     )
     elapsed = time.time() - start_time
 
-    answer = response.choices[0].message.content or ""
-    reasoning_tokens = getattr(response.usage, "completion_tokens_details", None)
-    reasoning_tokens = getattr(reasoning_tokens, "reasoning_tokens", 0) if reasoning_tokens else 0
+    answer = response.output_text or ""
+    reasoning_tokens = 0
+    if response.usage and hasattr(response.usage, "output_tokens_details"):
+        reasoning_tokens = getattr(response.usage.output_tokens_details, "reasoning_tokens", 0)
 
     probability, justification = parse_prediction(answer)
 
     return {
-        "thinking": "",  # OpenAI doesn't expose reasoning trace
+        "thinking": "",  # GPT-5.2 doesn't expose reasoning trace
         "answer": answer,
         "probability": probability,
         "justification": justification,
         "model_id": "gpt-5.2-pro-2025-12-11",
-        "model_settings": "reasoning_effort=high",
-        "input_tokens": response.usage.prompt_tokens,
-        "output_tokens": response.usage.completion_tokens,
+        "model_settings": "reasoning_effort=high, web_search=true",
+        "input_tokens": response.usage.input_tokens if response.usage else 0,
+        "output_tokens": response.usage.output_tokens if response.usage else 0,
         "thinking_tokens_approx": reasoning_tokens,
         "elapsed_seconds": round(elapsed, 2),
     }
