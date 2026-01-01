@@ -4,10 +4,19 @@ Collects probability predictions from AI models for a forecasting contest. Uses 
 
 ## Models
 
-| Model | Model ID | Thinking | Web Search |
-|-------|----------|----------|------------|
-| Claude Opus 4.5 | `claude-opus-4-5-20251101` | 32k token budget | Up to 20 searches |
-| GPT-5.2 Pro | `gpt-5.2-pro-2025-12-11` | reasoning_effort=high | Enabled |
+| Model | Model ID | Thinking Budget | Web Search |
+|-------|----------|-----------------|------------|
+| Claude Opus 4.5 | `claude-opus-4-5-20251101` | 60k tokens | Up to 20 searches |
+| GPT-5.2 Pro | `gpt-5.2-pro-2025-12-11` | ~61k tokens | Enabled |
+
+**Thinking budget parity:**
+
+Both models are configured for maximum comparable thinking capacity (~60k tokens):
+
+- **Claude**: `budget_tokens=60000` dedicated to thinking, plus separate `max_tokens=64000` for response. Claude's limit is that `budget_tokens` must be less than `max_tokens`, so 60k is near the max.
+- **OpenAI**: `max_output_tokens=64000` includes both reasoning AND response. With `reasoning_effort=xhigh` (~95% allocated to reasoning), this yields ~61k reasoning tokens + ~3k response.
+
+We chose 64k as the highest common denominator since that's Claude's max output limit. OpenAI could theoretically go to 128k, but we match Claude's ceiling for fairness.
 
 ## Setup
 

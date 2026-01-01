@@ -2,4 +2,6 @@ secrets.py
 questions.json
 claude_predictions.csv
 openai_predictions.csv
+claude_predictions_v1.csv
+openai_predictions_v1.csv
 __pycache__/

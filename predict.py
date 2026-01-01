@@ -101,7 +101,7 @@ def predict_claude(question: str) -> dict:
         max_tokens=64000,
         thinking={
             "type": "enabled",
-            "budget_tokens": 32000
+            "budget_tokens": 60000
         },
         tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 20}],
         system=SYSTEM_PROMPT,
@@ -129,7 +129,7 @@ def predict_claude(question: str) -> dict:
         "probability": probability,
         "justification": justification,
         "model_id": "claude-opus-4-5-20251101",
-        "model_settings": "thinking_budget=32000, web_search_max_uses=20",
+        "model_settings": "thinking_budget=60000, web_search_max_uses=20",
         "input_tokens": response.usage.input_tokens,
         "output_tokens": response.usage.output_tokens,
         "thinking_tokens_approx": thinking_tokens,
@@ -148,7 +148,8 @@ def predict_openai(question: str) -> dict:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": question}
         ],
-        reasoning={"effort": "high"},
+        max_output_tokens=64000,
+        reasoning={"effort": "xhigh"},
         tools=[{"type": "web_search_preview"}],
     )
     elapsed = time.time() - start_time
@@ -166,7 +167,7 @@ def predict_openai(question: str) -> dict:
         "probability": probability,
         "justification": justification,
         "model_id": "gpt-5.2-pro-2025-12-11",
-        "model_settings": "reasoning_effort=high, web_search=true",
+        "model_settings": "max_output_tokens=64000, reasoning_effort=xhigh, web_search=true",
         "input_tokens": response.usage.input_tokens if response.usage else 0,
         "output_tokens": response.usage.output_tokens if response.usage else 0,
         "thinking_tokens_approx": reasoning_tokens,
