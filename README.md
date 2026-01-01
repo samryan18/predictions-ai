@@ -22,10 +22,10 @@ cp secrets_example.py secrets.py
 
 ```bash
 # Run with Claude (parallel)
-python predict.py questions.json --model claude --output claude_predictions.csv --workers 10
+python predict.py questions.json --model claude --output claude_predictions.csv --workers 5
 
 # Run with OpenAI (parallel)
-python predict.py questions.json --model openai --output openai_predictions.csv --workers 10
+python predict.py questions.json --model openai --output openai_predictions.csv --workers 20
 ```
 
 Options:

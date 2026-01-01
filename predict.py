@@ -180,8 +180,12 @@ MODELS = {
 }
 
 
+MAX_RETRIES = 5
+BASE_DELAY = 10  # seconds
+
+
 def process_question(q: dict, predict_fn, print_lock: threading.Lock):
-    """Process a single question and return result."""
+    """Process a single question and return result with retry logic."""
     qid = q.get("id", "")
     category = q.get("category", "")
     question_text = q["question"]
@@ -195,35 +199,53 @@ def process_question(q: dict, predict_fn, print_lock: threading.Lock):
     with print_lock:
         print(f"[{qid}] Starting: {question_text[:50]}...")
 
-    try:
-        result = predict_fn(full_prompt)
+    last_error = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            result = predict_fn(full_prompt)
 
-        row = {
-            "question_id": qid,
-            "category": category,
-            "question": question_text,
-            "probability": result["probability"],
-            "justification": result["justification"],
-            "model_id": result["model_id"],
-            "model_settings": result["model_settings"],
-            "input_tokens": result["input_tokens"],
-            "output_tokens": result["output_tokens"],
-            "thinking_tokens_approx": result["thinking_tokens_approx"],
-            "elapsed_seconds": result["elapsed_seconds"],
-            "timestamp": datetime.now().isoformat(),
-            "raw_answer": result["answer"],
-            "thinking": result["thinking"],
-        }
+            row = {
+                "question_id": qid,
+                "category": category,
+                "question": question_text,
+                "probability": result["probability"],
+                "justification": result["justification"],
+                "model_id": result["model_id"],
+                "model_settings": result["model_settings"],
+                "input_tokens": result["input_tokens"],
+                "output_tokens": result["output_tokens"],
+                "thinking_tokens_approx": result["thinking_tokens_approx"],
+                "elapsed_seconds": result["elapsed_seconds"],
+                "timestamp": datetime.now().isoformat(),
+                "raw_answer": result["answer"],
+                "thinking": result["thinking"],
+            }
 
-        with print_lock:
-            print(f"[{qid}] Done. Probability: {result['probability']} ({result['elapsed_seconds']}s)")
+            with print_lock:
+                print(f"[{qid}] Done. Probability: {result['probability']} ({result['elapsed_seconds']}s)")
 
-        return qid, True, None, row
+            return qid, True, None, row
 
-    except Exception as e:
-        with print_lock:
-            print(f"[{qid}] ERROR: {e}")
-        return qid, False, str(e), None
+        except Exception as e:
+            last_error = e
+            error_str = str(e).lower()
+
+            # Retry on rate limits or transient errors
+            if "rate_limit" in error_str or "429" in error_str or "overloaded" in error_str or "503" in error_str:
+                delay = BASE_DELAY * (2 ** attempt)  # Exponential backoff: 10, 20, 40, 80, 160s
+                with print_lock:
+                    print(f"[{qid}] Rate limited, retry {attempt + 1}/{MAX_RETRIES} in {delay}s...")
+                time.sleep(delay)
+            else:
+                # Non-retryable error
+                with print_lock:
+                    print(f"[{qid}] ERROR: {e}")
+                return qid, False, str(e), None
+
+    # Exhausted retries
+    with print_lock:
+        print(f"[{qid}] FAILED after {MAX_RETRIES} retries: {last_error}")
+    return qid, False, str(last_error), None
 
 
 def main():
