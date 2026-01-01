@@ -6,6 +6,8 @@ import csv
 import re
 import argparse
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import anthropic
 import openai
@@ -59,22 +61,23 @@ def parse_prediction(answer: str) -> tuple[str, str]:
     justification = ""
 
     # Try multiple patterns to find the probability
-    # Pattern 1: Line that's just a number
-    # Pattern 2: After "# Answer" header
-    # Pattern 3: Any 0.XX number in the text
-
-    # First try: look for # Answer section
-    answer_match = re.search(r"#\s*Answer\s*\n+(0\.\d+)", answer)
+    # Pattern 1: After "# Answer" header (with possible whitespace/newlines)
+    answer_match = re.search(r"#\s*Answer\s*\n+\s*(0\.\d+)", answer)
     if answer_match:
         probability = answer_match.group(1)
     else:
-        # Fallback: find first 0.XXXX pattern (probability-like number)
-        prob_match = re.search(r"\b(0\.\d{2,6})\b", answer)
-        if prob_match:
-            probability = prob_match.group(1)
+        # Pattern 2: Line starting with 0.XX (probability on its own line)
+        line_match = re.search(r"^\s*(0\.\d{2,6})\s*$", answer, re.MULTILINE)
+        if line_match:
+            probability = line_match.group(1)
+        else:
+            # Pattern 3: Any 0.XX probability-like number in text
+            prob_match = re.search(r"\b(0\.\d{2,6})\b", answer)
+            if prob_match:
+                probability = prob_match.group(1)
 
-    # Extract justification
-    just_match = re.search(r"Justification:\s*(.+)", answer, re.DOTALL)
+    # Extract justification - get text after "Justification:" until end or next section
+    just_match = re.search(r"Justification:\s*(.+?)(?:\n\n|\n#|$)", answer, re.DOTALL)
     if just_match:
         justification = just_match.group(1).strip()
 
@@ -109,12 +112,14 @@ def predict_claude(question: str) -> dict:
     elapsed = time.time() - start_time
 
     thinking_tokens = 0
+    text_parts = []
     for block in response.content:
         if block.type == "thinking":
             thinking = block.thinking
             thinking_tokens = len(block.thinking.split())
         elif block.type == "text":
-            answer = block.text
+            text_parts.append(block.text)
+    answer = "\n".join(text_parts)
 
     probability, justification = parse_prediction(answer)
 
@@ -175,11 +180,58 @@ MODELS = {
 }
 
 
+def process_question(q: dict, predict_fn, print_lock: threading.Lock):
+    """Process a single question and return result."""
+    qid = q.get("id", "")
+    category = q.get("category", "")
+    question_text = q["question"]
+    context = q.get("context", "")
+
+    # Build full prompt with context if available
+    full_prompt = f"# Question\n{question_text}"
+    if context:
+        full_prompt += f"\n\nContext: {context}"
+
+    with print_lock:
+        print(f"[{qid}] Starting: {question_text[:50]}...")
+
+    try:
+        result = predict_fn(full_prompt)
+
+        row = {
+            "question_id": qid,
+            "category": category,
+            "question": question_text,
+            "probability": result["probability"],
+            "justification": result["justification"],
+            "model_id": result["model_id"],
+            "model_settings": result["model_settings"],
+            "input_tokens": result["input_tokens"],
+            "output_tokens": result["output_tokens"],
+            "thinking_tokens_approx": result["thinking_tokens_approx"],
+            "elapsed_seconds": result["elapsed_seconds"],
+            "timestamp": datetime.now().isoformat(),
+            "raw_answer": result["answer"],
+            "thinking": result["thinking"],
+        }
+
+        with print_lock:
+            print(f"[{qid}] Done. Probability: {result['probability']} ({result['elapsed_seconds']}s)")
+
+        return qid, True, None, row
+
+    except Exception as e:
+        with print_lock:
+            print(f"[{qid}] ERROR: {e}")
+        return qid, False, str(e), None
+
+
 def main():
     parser = argparse.ArgumentParser(description="AI Prediction Harness")
     parser.add_argument("questions_file", help="JSON file with questions")
     parser.add_argument("--model", choices=["claude", "openai"], required=True)
     parser.add_argument("--output", default="predictions.csv", help="Output CSV file")
+    parser.add_argument("--workers", type=int, default=1, help="Number of parallel workers (default: 1)")
     args = parser.parse_args()
 
     with open(args.questions_file) as f:
@@ -194,45 +246,53 @@ def main():
         "raw_answer", "thinking"
     ]
 
+    print_lock = threading.Lock()
+    results = []
+    errors = []
+
+    if args.workers == 1:
+        # Sequential processing
+        for q in questions:
+            qid, success, error, row = process_question(q, predict_fn, print_lock)
+            if success:
+                results.append(row)
+            else:
+                errors.append((qid, error))
+    else:
+        # Parallel processing
+        print(f"Running with {args.workers} parallel workers...")
+        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+            futures = {
+                executor.submit(process_question, q, predict_fn, print_lock): q
+                for q in questions
+            }
+
+            completed = 0
+            for future in as_completed(futures):
+                qid, success, error, row = future.result()
+                completed += 1
+                if success:
+                    results.append(row)
+                else:
+                    errors.append((qid, error))
+                with print_lock:
+                    print(f"Progress: {completed}/{len(questions)}")
+
+    # Sort results by question_id and write to CSV
+    results.sort(key=lambda r: r["question_id"])
+
     with open(args.output, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
+        for row in results:
+            writer.writerow(row)
 
-        for q in questions:
-            qid = q.get("id", "")
-            category = q.get("category", "")
-            question_text = q["question"]
-            context = q.get("context", "")
+    if errors:
+        print(f"\n{len(errors)} errors occurred:")
+        for qid, error in errors:
+            print(f"  [{qid}] {error}")
 
-            # Build full prompt with context if available
-            full_prompt = f"# Question\n{question_text}"
-            if context:
-                full_prompt += f"\n\nContext: {context}"
-
-            print(f"[{qid}] {question_text[:50]}...")
-
-            result = predict_fn(full_prompt)
-
-            writer.writerow({
-                "question_id": qid,
-                "category": category,
-                "question": question_text,
-                "probability": result["probability"],
-                "justification": result["justification"],
-                "model_id": result["model_id"],
-                "model_settings": result["model_settings"],
-                "input_tokens": result["input_tokens"],
-                "output_tokens": result["output_tokens"],
-                "thinking_tokens_approx": result["thinking_tokens_approx"],
-                "elapsed_seconds": result["elapsed_seconds"],
-                "timestamp": datetime.now().isoformat(),
-                "raw_answer": result["answer"],
-                "thinking": result["thinking"],
-            })
-            f.flush()
-            print(f"  Done. Probability: {result['probability']}")
-
-    print(f"Results saved to {args.output}")
+    print(f"\nResults saved to {args.output} ({len(results)} predictions)")
 
 
 if __name__ == "__main__":

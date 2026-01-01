@@ -21,12 +21,17 @@ cp secrets_example.py secrets.py
 ## Usage
 
 ```bash
-# Run with Claude
-python predict.py questions.json --model claude --output claude_predictions.csv
+# Run with Claude (parallel)
+python predict.py questions.json --model claude --output claude_predictions.csv --workers 10
 
-# Run with OpenAI
-python predict.py questions.json --model openai --output openai_predictions.csv
+# Run with OpenAI (parallel)
+python predict.py questions.json --model openai --output openai_predictions.csv --workers 10
 ```
+
+Options:
+- `--model` (required): `claude` or `openai`
+- `--output`: Output CSV file (default: `predictions.csv`)
+- `--workers`: Number of parallel workers (default: 1)
 
 ## Questions Format
 
