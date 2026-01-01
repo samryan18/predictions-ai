@@ -1,0 +1,13 @@
+[
+  {
+    "id": 1,
+    "category": "Example",
+    "question": "Will the US unemployment rate exceed 5% at any point in 2026?",
+    "context": "The unemployment rate has stayed below 5% since late 2021, current rate is ~4.2%."
+  },
+  {
+    "id": 2,
+    "category": "Example",
+    "question": "Will Bitcoin exceed $150,000 at any point in 2026?"
+  }
+]
